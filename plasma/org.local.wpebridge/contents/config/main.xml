@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <entry name="WindowUuid" type="String">
+      <label>KWin UUID of the Wallpaper Engine window to show</label>
+      <default></default>
+    </entry>
+    <entry name="CropX" type="Int">
+      <label>Left edge of this screen inside the streamed window</label>
+      <default>0</default>
+    </entry>
+    <entry name="CropY" type="Int">
+      <label>Top edge of this screen inside the streamed window</label>
+      <default>0</default>
+    </entry>
+    <entry name="CropW" type="Int">
+      <label>Width of this screen</label>
+      <default>0</default>
+    </entry>
+    <entry name="CropH" type="Int">
+      <label>Height of this screen</label>
+      <default>0</default>
+    </entry>
+    <entry name="HostW" type="Int">
+      <label>Width of the streamed window</label>
+      <default>0</default>
+    </entry>
+    <entry name="HostH" type="Int">
+      <label>Height of the streamed window</label>
+      <default>0</default>
+    </entry>
+    <entry name="Assigned" type="Bool">
+      <label>Whether the engine has a wallpaper on this screen</label>
+      <default>true</default>
+    </entry>
+    <entry name="FallbackImage" type="String">
+      <label>The screen's regular Plasma wallpaper (image file or wallpaper folder), copied from org.kde.image</label>
+      <default></default>
+    </entry>
+    <entry name="FallbackFillMode" type="Int">
+      <label>Fill mode of the regular Plasma wallpaper</label>
+      <default>2</default>
+    </entry>
+  </group>
+
+</kcfg>

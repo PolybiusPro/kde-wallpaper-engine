@@ -1,0 +1,11 @@
+[package]
+name = "wpe-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Runs Wallpaper Engine under Proton as the KDE Plasma wallpaper"
+
+[dependencies]
+libc = "0.2"
+serde_json = { version = "1", features = ["preserve_order"] }
+zbus = "5"

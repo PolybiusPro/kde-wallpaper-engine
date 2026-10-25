@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Wallpaper Engine Bridge
+Comment=Start Wallpaper Engine under Proton and stream it as the Plasma wallpaper
+Exec=@BINDIR@/wpe-bridge-start
+Terminal=false
+X-KDE-autostart-after=plasma-workspace

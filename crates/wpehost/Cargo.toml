@@ -1,0 +1,17 @@
+[package]
+name = "wpehost"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Fake Windows desktop host for Wallpaper Engine under Wine"
+
+[dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Environment",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }

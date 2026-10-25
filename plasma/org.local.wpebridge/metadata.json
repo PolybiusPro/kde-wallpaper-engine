@@ -1,0 +1,13 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [{"Name": "local"}],
+        "Category": "",
+        "Description": "Shows the Wallpaper Engine (Proton) window as the desktop wallpaper",
+        "Icon": "preferences-desktop-wallpaper",
+        "Id": "org.local.wpebridge",
+        "License": "GPL-3.0+",
+        "Name": "Wallpaper Engine Bridge"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell"
+}

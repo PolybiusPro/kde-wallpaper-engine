@@ -1,0 +1,12 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [{"Name": "local"}],
+        "Description": "Parks Wallpaper Engine (Proton) wallpaper windows off-screen so the Plasma wallpaper plugin can stream them",
+        "Id": "wpe-bridge",
+        "License": "GPL-3.0+",
+        "Name": "Wallpaper Engine Bridge"
+    },
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

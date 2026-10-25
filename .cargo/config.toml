@@ -1,0 +1,5 @@
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+# Keep libgcc and winpthreads out of the import table: nothing in the Wine
+# prefix provides them.
+rustflags = ["-C", "target-feature=+crt-static", "-C", "link-arg=-static"]
