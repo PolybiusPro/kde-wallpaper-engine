@@ -4,7 +4,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='Run Wallpaper Engine under Proton as the KDE Plasma wallpaper'
 arch=('x86_64')
-url='https://github.com/PolybiusPro/wallpaper-engine-linux'
+url='https://github.com/PolybiusPro/kde-wallpaper-engine'
 license=('GPL-3.0-or-later')
 depends=('plasma-workspace' 'kwin' 'kpipewire' 'kconfig' 'steam' 'systemd')
 # The Windows binaries need rust's x86_64-pc-windows-gnu std, which Arch's `rust`
@@ -14,18 +14,18 @@ source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 prepare() {
-  cd "wallpaper-engine-linux-$pkgver"
+  cd "kde-wallpaper-engine-$pkgver"
   export CARGO_HOME="$srcdir/cargo"
   cargo fetch --locked
 }
 
 build() {
-  cd "wallpaper-engine-linux-$pkgver"
+  cd "kde-wallpaper-engine-$pkgver"
   export CARGO_HOME="$srcdir/cargo"
   make all CARGOFLAGS='--release --locked --offline'
 }
 
 package() {
-  cd "wallpaper-engine-linux-$pkgver"
+  cd "kde-wallpaper-engine-$pkgver"
   make DESTDIR="$pkgdir" PREFIX=/usr install
 }
