@@ -1,0 +1,29 @@
+# Repackages the prebuilt release tarball, so no Rust or mingw is needed.
+# Build with: PKGEXT='.pkg.tar.gz' makepkg -f
+pkgname=wpe-bridge
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Run Wallpaper Engine under Proton as the KDE Plasma wallpaper'
+arch=('x86_64')
+url='https://github.com/PolybiusPro/kde-wallpaper-engine'
+license=('GPL-3.0-or-later')
+depends=('plasma-workspace' 'kwin' 'kpipewire' 'kconfig' 'steam' 'systemd')
+source=("$url/releases/download/v$pkgver/kde-wallpaper-engine-$pkgver-x86_64.tar.gz")
+sha256sums=('bb855f5f224334aa2f76bf1dce996a39c513d22de793718d67d01e2619ee36fa')
+
+package() {
+  cd "kde-wallpaper-engine-$pkgver-x86_64"
+  install -d "$pkgdir/usr/bin" "$pkgdir/usr/share/wpe-bridge" \
+    "$pkgdir/usr/share/kwin/scripts" "$pkgdir/usr/share/plasma/wallpapers" \
+    "$pkgdir/etc/xdg/autostart"
+  install -m 755 bin/wpe-bridge "$pkgdir/usr/bin/"
+  for f in start stop control playback setup; do
+    ln -s wpe-bridge "$pkgdir/usr/bin/wpe-bridge-$f"
+  done
+  install -m 644 bin/wpehost.exe bin/wtsapi32.dll "$pkgdir/usr/share/wpe-bridge/"
+  cp -r --no-preserve=mode kwin/wpe-bridge "$pkgdir/usr/share/kwin/scripts/"
+  cp -r --no-preserve=mode plasma/org.local.wpebridge "$pkgdir/usr/share/plasma/wallpapers/"
+  sed "s#@BINDIR@#/usr/bin#" share/wpe-bridge.desktop.in \
+    > "$pkgdir/etc/xdg/autostart/wpe-bridge.desktop"
+  install -Dm 644 LICENSE "$pkgdir/usr/share/licenses/wpe-bridge/LICENSE"
+}
