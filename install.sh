@@ -1,5 +1,7 @@
 #!/bin/bash
-# Installs the bridge for the current user. Paths come from
+# Installs the bridge for the current user. From a source checkout it builds
+# first; from a release tarball (no Cargo.toml) it installs the prebuilt files
+# in bin/. Paths come from
 # ${XDG_CONFIG_HOME:-~/.config}/wpe-bridge/config (WPE_INSTALL, WPE_PROTON),
 # or from the environment when running this script.
 set -euo pipefail
@@ -10,18 +12,24 @@ CONF=${XDG_CONFIG_HOME:-$HOME/.config}/wpe-bridge/config
 INSTALL=${WPE_INSTALL:-$HOME/.local/share/Steam/steamapps/common/wallpaper_engine}
 [ -d "$INSTALL" ] || { echo "Wallpaper Engine not found at $INSTALL (set WPE_INSTALL)" >&2; exit 1; }
 
-# rustup keeps cargo out of PATH until its env file is sourced.
-command -v cargo >/dev/null || . "$HOME/.cargo/env"
-make all
+if [ -f Cargo.toml ]; then
+    # rustup keeps cargo out of PATH until its env file is sourced.
+    command -v cargo >/dev/null || . "$HOME/.cargo/env"
+    make all
+    LINUX_BIN=target/release/wpe-bridge
+    WIN=target/x86_64-pc-windows-gnu/release
+else
+    LINUX_BIN=bin/wpe-bridge
+    WIN=bin
+fi
 
 BIN=$HOME/.local/bin
 SHARE=$HOME/.local/share
-WIN=target/x86_64-pc-windows-gnu/release
 mkdir -p "$BIN" "$SHARE/wpe-bridge" "$SHARE/kwin/scripts" "$SHARE/plasma/wallpapers" \
          "$HOME/.config/autostart"
 
 # Replace the old binary by rename, so a running helper keeps its inode.
-install -m 755 target/release/wpe-bridge "$BIN/wpe-bridge.new"
+install -m 755 "$LINUX_BIN" "$BIN/wpe-bridge.new"
 mv -f "$BIN/wpe-bridge.new" "$BIN/wpe-bridge"
 for cmd in start stop control playback setup; do ln -sf wpe-bridge "$BIN/wpe-bridge-$cmd"; done
 rm -f "$BIN/wpe-bridge-ui"   # an earlier version installed this command

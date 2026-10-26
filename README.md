@@ -4,6 +4,18 @@ Runs the real Windows Wallpaper Engine (Steam app 431960) under Proton and shows
 
 Developed and tested on CachyOS, Plasma 6.8 (Wayland), native Steam, Wallpaper Engine 2.8.42, a Proton build with the Steam Linux Runtime container, and two monitors (one rotated). Treat anything else as untested.
 
+## Install
+
+Download `kde-wallpaper-engine-<version>-x86_64.tar.gz` from the [latest release](https://github.com/PolybiusPro/kde-wallpaper-engine/releases/latest), then:
+
+```bash
+tar xzf kde-wallpaper-engine-*-x86_64.tar.gz
+cd kde-wallpaper-engine-*-x86_64
+./install.sh               # installs under ~/.local and runs wpe-bridge-setup
+```
+
+No Rust is needed. The release binary needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, current Arch). To build from source instead, see [Building from source](#building-from-source).
+
 ## Requirements
 
 Runtime:
@@ -14,21 +26,11 @@ Runtime:
 - `kconfig` (`kwriteconfig6`, used by setup to enable the KWin script) and `systemd` (`systemctl --user`, to restart plasmashell)
 - A running user D-Bus session, which Plasma provides
 
-Build:
-
-- Rust from rustup, with the `x86_64-pc-windows-gnu` target (`wpehost` and `wtsapi32` are Windows binaries; Arch's `rust` does not ship that target)
-- `mingw-w64-gcc` as the linker for those two crates, and `make`
-
 Package names are the Arch ones. Other distributions name them differently.
 
-## Install
+## After installing
 
-```bash
-rustup target add x86_64-pc-windows-gnu
-./install.sh               # builds with `make all`, installs under ~/.local, runs wpe-bridge-setup
-```
-
-Then pick "Wallpaper Engine Bridge" as the wallpaper type on each screen (Desktop settings). Start the bridge with Play in Steam or `wpe-bridge-start`; it also runs at login. `./uninstall.sh` reverses it.
+Pick "Wallpaper Engine Bridge" as the wallpaper type on each screen (Desktop settings). Start the bridge with Play in Steam or `wpe-bridge-start`; it also runs at login. `./uninstall.sh` reverses it.
 
 Setup sets Wallpaper Engine's launch option in Steam to `wpe-bridge-start %command%`, so Play starts the bridge instead of the stock launcher. Steam rewrites its config when it exits, so the option is only written while Steam is closed: if Steam is running, setup says so, and you close Steam and run `wpe-bridge-setup` again. Launch options you already have are left alone, and a backup of the changed file is kept next to it as `localconfig.vdf.wpe-bridge.bak`.
 
@@ -42,6 +44,16 @@ WPE_PROTON=/path/to/compatibilitytools.d/<your-proton>/proton   # optional
 ```
 
 Proton follows Steam: `wpe-bridge-start` reads the compatibility tool Steam has for Wallpaper Engine (its per-game choice, else the default tool) from `~/.local/share/Steam/config/config.vdf` and finds that tool's `proton` script, so changing it in Steam's settings is enough. Set `WPE_PROTON` only to force a different one.
+
+## Building from source
+
+Needs Rust from rustup with the `x86_64-pc-windows-gnu` target (`wpehost` and `wtsapi32` are Windows binaries; Arch's `rust` does not ship that target), `mingw-w64-gcc` as the linker for those two crates, and `make`.
+
+```bash
+rustup target add x86_64-pc-windows-gnu
+./install.sh               # in a checkout: builds with `make all`, then installs as above
+make dist                  # builds the release tarball into dist/
+```
 
 ## Commands
 
