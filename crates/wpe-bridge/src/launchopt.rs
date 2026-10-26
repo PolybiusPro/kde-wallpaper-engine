@@ -195,13 +195,18 @@ pub fn edit(text: &str, appid: u32, want: Option<&str>) -> Edit {
     }
 }
 
-/// `<bindir>/wpe-bridge-start %command%`, shell-quoted for Steam.
+/// `<bindir>/wpe-bridge-start %command%` for the directory this binary lives in.
 fn launch_value() -> Option<String> {
     let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
-    let start = exe.parent()?.join(MARK).to_string_lossy().into_owned();
+    Some(launch_value_in(exe.parent()?))
+}
+
+/// `<bindir>/wpe-bridge-start %command%`, shell-quoted for Steam.
+fn launch_value_in(bindir: &Path) -> String {
+    let start = bindir.join(MARK).to_string_lossy().into_owned();
     let plain = start.chars().all(|c| c.is_ascii_alphanumeric() || "_./-+@:,=~".contains(c));
     let start = if plain { start } else { format!("'{}'", start.replace('\'', "'\\''")) };
-    Some(format!("{start} %command%"))
+    format!("{start} %command%")
 }
 
 fn local_configs(userdata: &Path) -> Vec<PathBuf> {
@@ -228,10 +233,14 @@ pub fn apply(enable: bool) {
     } else {
         None
     };
+    apply_in(&config::steam_dir().join("userdata"), enable, want.as_deref(), proc::find("steam").is_some());
+}
+
+fn apply_in(userdata: &Path, enable: bool, want: Option<&str>, steam_running: bool) {
     let mut pending = Vec::new();
-    for file in local_configs(&config::steam_dir().join("userdata")) {
+    for file in local_configs(userdata) {
         let Ok(text) = fs::read_to_string(&file) else { continue };
-        match edit(&text, APPID, want.as_deref()) {
+        match edit(&text, APPID, want) {
             Edit::Changed(new) => pending.push((file, new)),
             Edit::Foreign(old) => eprintln!(
                 "Steam already has launch options for Wallpaper Engine ({old}); left alone.\nTo start the bridge from Steam, set them to: {MARK} %command%"
@@ -243,7 +252,7 @@ pub fn apply(enable: bool) {
         return;
     }
     let what = if enable { "set" } else { "remove" };
-    if proc::find("steam").is_some() {
+    if steam_running {
         eprintln!(
             "Steam is running and would overwrite the change when it exits, so Wallpaper Engine's launch option was not {}.\nClose Steam and run wpe-bridge-setup{} again.",
             if enable { "set" } else { "removed" },
@@ -356,5 +365,107 @@ mod tests {
         assert_eq!(edit("not vdf", 431960, Some(START)), Edit::Skipped);
         assert_eq!(edit("\"UserLocalConfigStore\"\n{\n}\n", 431960, Some(START)), Edit::Skipped);
         assert_eq!(edit("\"a\" {", 431960, Some(START)), Edit::Skipped);
+    }
+
+    fn userdata_with(scratch: &crate::testutil::Scratch, account: &str, text: &str) -> PathBuf {
+        scratch.write(&format!("{account}/config/localconfig.vdf"), text)
+    }
+
+    fn bak(file: &Path) -> PathBuf {
+        file.with_extension("vdf.wpe-bridge.bak")
+    }
+
+    #[test]
+    fn apply_writes_the_option_and_keeps_a_backup() {
+        let s = crate::testutil::Scratch::new();
+        let file = userdata_with(&s, "1001", &vdf(APP));
+        apply_in(s.path(), true, Some(START), false);
+        assert!(fs::read_to_string(&file).unwrap().contains(START));
+        assert_eq!(fs::read_to_string(bak(&file)).unwrap(), vdf(APP));
+    }
+
+    #[test]
+    fn apply_does_not_replace_an_existing_backup() {
+        let s = crate::testutil::Scratch::new();
+        let file = userdata_with(&s, "1001", &vdf(APP));
+        fs::write(bak(&file), "the user's own backup").unwrap();
+        apply_in(s.path(), true, Some(START), false);
+        assert_eq!(fs::read_to_string(bak(&file)).unwrap(), "the user's own backup");
+    }
+
+    #[test]
+    fn apply_writes_nothing_while_steam_runs() {
+        let s = crate::testutil::Scratch::new();
+        let file = userdata_with(&s, "1001", &vdf(APP));
+        apply_in(s.path(), true, Some(START), true);
+        assert_eq!(fs::read_to_string(&file).unwrap(), vdf(APP));
+        assert!(!bak(&file).exists());
+    }
+
+    #[test]
+    fn apply_leaves_foreign_options_and_writes_no_backup() {
+        let s = crate::testutil::Scratch::new();
+        let theirs = vdf(&APP.replace("\t\t\t\t\t}\n", "\t\t\t\t\t\t\"LaunchOptions\"\t\t\"mangohud %command%\"\n\t\t\t\t\t}\n"));
+        let file = userdata_with(&s, "1001", &theirs);
+        apply_in(s.path(), true, Some(START), false);
+        assert_eq!(fs::read_to_string(&file).unwrap(), theirs);
+        assert!(!bak(&file).exists());
+    }
+
+    #[test]
+    fn apply_handles_every_account_and_skips_unreadable_ones() {
+        let s = crate::testutil::Scratch::new();
+        let a = userdata_with(&s, "1001", &vdf(APP));
+        let b = userdata_with(&s, "1002", &vdf(""));
+        let junk = userdata_with(&s, "1003", "not vdf");
+        s.write("1004/other.txt", "no localconfig here");
+        apply_in(s.path(), true, Some(START), false);
+        assert!(fs::read_to_string(a).unwrap().contains(START));
+        assert!(fs::read_to_string(b).unwrap().contains(START));
+        assert_eq!(fs::read_to_string(junk).unwrap(), "not vdf");
+    }
+
+    #[test]
+    fn apply_removal_restores_the_file() {
+        let s = crate::testutil::Scratch::new();
+        let file = userdata_with(&s, "1001", &vdf(APP));
+        apply_in(s.path(), true, Some(START), false);
+        apply_in(s.path(), false, None, false);
+        assert_eq!(fs::read_to_string(&file).unwrap(), vdf(APP));
+    }
+
+    #[test]
+    fn apply_without_a_userdata_folder_is_a_no_op() {
+        let s = crate::testutil::Scratch::new();
+        apply_in(&s.path().join("missing"), true, Some(START), false);
+    }
+
+    #[test]
+    fn the_launch_value_quotes_only_when_needed() {
+        assert_eq!(launch_value_in(Path::new("/home/u/.local/bin")), "/home/u/.local/bin/wpe-bridge-start %command%");
+        assert_eq!(launch_value_in(Path::new("/home/u/my bin")), "'/home/u/my bin/wpe-bridge-start' %command%");
+        assert_eq!(launch_value_in(Path::new("/it's")), "'/it'\\''s/wpe-bridge-start' %command%");
+    }
+
+    #[test]
+    fn the_real_launch_value_names_the_start_command() {
+        assert!(launch_value().unwrap().ends_with("/wpe-bridge-start %command%"));
+    }
+
+    #[test]
+    fn parser_handles_comments_escapes_and_nesting() {
+        let text = "// header\n\"a\"\t{ \"k\" \"v\\n\\t\\\"\\q\" // trailing\n \"b\" { } }\n";
+        let block = Parser { s: text, i: 0 }.entries(true).unwrap();
+        let Node::Block(a) = &block.entries[0].node else { panic!("expected a block") };
+        let Node::Value { text, .. } = &a.entries[0].node else { panic!("expected a value") };
+        assert_eq!(text, "v\n\t\"q");
+        assert!(child(a, "B").is_some());
+    }
+
+    #[test]
+    fn parser_rejects_malformed_input() {
+        for bad in ["\"k\" \"unterminated", "\"k\" \"v\\", "\"k\" 5", "\"k\" {", "}", "\"k\"", "k"] {
+            assert!(Parser { s: bad, i: 0 }.entries(true).is_none(), "{bad:?}");
+        }
     }
 }

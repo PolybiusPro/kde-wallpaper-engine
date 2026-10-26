@@ -131,13 +131,26 @@ unsafe extern "system" fn add_child(c: HWND, l: LPARAM) -> i32 {
     }
     let mut r: RECT = std::mem::zeroed();
     GetWindowRect(c, &mut r);
-    rects.list.push((
-        r.left - rects.host.left,
-        r.top - rects.host.top,
-        r.right - r.left,
-        r.bottom - r.top,
-    ));
+    rects.list.push(host_relative(&rects.host, &r));
     1
+}
+
+/// A window's rectangle as x, y, width, height relative to the host's corner.
+fn host_relative(host: &RECT, r: &RECT) -> (i32, i32, i32, i32) {
+    (r.left - host.left, r.top - host.top, r.right - r.left, r.bottom - r.top)
+}
+
+/// "WPE-Host[:clone]|x,y,w,h;x,y,w,h", cut off before it passes TITLE_MAX.
+fn build_title(clone: bool, rects: &[(i32, i32, i32, i32)]) -> String {
+    let mut title = String::from(if clone { "WPE-Host:clone" } else { "WPE-Host" });
+    for (i, (x, y, w, h)) in rects.iter().enumerate() {
+        let part = format!("{}{x},{y},{w},{h}", if i > 0 { ';' } else { '|' });
+        if title.len() + part.len() > TITLE_MAX {
+            break;
+        }
+        title.push_str(&part);
+    }
+    title
 }
 
 /// The bridge needs to know which monitors the engine has a wallpaper on, so the
@@ -147,21 +160,11 @@ unsafe extern "system" fn add_child(c: HWND, l: LPARAM) -> i32 {
 /// In the engine's clone layout it makes a single window and mirrors it on the
 /// other monitors itself, so that is flagged as "WPE-Host:clone|x,y,w,h".
 unsafe fn update_title(host: HWND, config: &[u16], last: &mut String) {
-    let mut title = String::from(if !config.is_empty() && read_layout(config) == Some(2) {
-        "WPE-Host:clone"
-    } else {
-        "WPE-Host"
-    });
+    let clone = !config.is_empty() && read_layout(config) == Some(2);
     let mut rects = Rects { host: std::mem::zeroed(), list: Vec::new() };
     GetWindowRect(host, &mut rects.host);
     EnumChildWindows(host, Some(add_child), &mut rects as *mut Rects as LPARAM);
-    for (i, (x, y, w, h)) in rects.list.iter().enumerate() {
-        let part = format!("{}{x},{y},{w},{h}", if i > 0 { ';' } else { '|' });
-        if title.len() + part.len() > TITLE_MAX {
-            break;
-        }
-        title.push_str(&part);
-    }
+    let title = build_title(clone, &rects.list);
     if title != *last {
         SetWindowTextW(host, wide(&title).as_ptr());
         *last = title;
@@ -355,7 +358,89 @@ mod tests {
 
     #[test]
     fn render_classes() {
-        assert!(is_render_class("WPEVideoWallpaper"));
+        for cls in ["WPEDesktopDX11Window", "WPEDesktopCEFWindow", "WPEVideoWallpaper", "WPEAppIntermediateWorker"] {
+            assert!(is_render_class(cls), "{cls}");
+        }
         assert!(!is_render_class("WPEUI"));
+        assert!(!is_render_class(""));
+        assert!(!is_render_class("wpevideowallpaper"));
+    }
+
+    #[test]
+    fn atoi_edges() {
+        assert_eq!(atoi(b""), Some(0));
+        assert_eq!(atoi(b"+7"), Some(7));
+        assert_eq!(atoi(b"\t\n 12abc"), Some(12));
+        assert_eq!(atoi(b"-"), Some(0));
+        assert_eq!(atoi(b"2147483647"), Some(i32::MAX));
+        // Too big for an i32: refused, not wrapped.
+        assert_eq!(atoi(b"2147483648"), None);
+        assert_eq!(atoi(b"99999999999999999999"), None);
+    }
+
+    #[test]
+    fn find_edges() {
+        assert_eq!(find(b"abcabc", b"ca"), Some(2));
+        assert_eq!(find(b"abc", b"abcd"), None);
+        assert_eq!(find(b"", b"a"), None);
+        assert_eq!(find(b"abc", b"c"), Some(2));
+    }
+
+    fn temp_config(name: &str, text: Option<&str>) -> Vec<u16> {
+        let path = std::env::temp_dir().join(format!("wpehost-test-{}-{name}.json", std::process::id()));
+        match text {
+            Some(t) => std::fs::write(&path, t).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        w(path.to_str().unwrap())
+    }
+
+    #[test]
+    fn layout_edge_cases() {
+        // No file, an empty file, no layout in the section, junk after the colon.
+        assert_eq!(read_layout(&temp_config("missing", None)), None);
+        assert_eq!(read_layout(&temp_config("empty", Some(""))), None);
+        assert_eq!(read_layout(&temp_config("nolayout", Some(r#"{"wallpaperconfig":{"x":1}}"#))), None);
+        assert_eq!(read_layout(&temp_config("nocolon", Some(r#"{"wallpaperconfig":{"layout"}}"#))), None);
+        assert_eq!(read_layout(&temp_config("junk", Some(r#"{"wallpaperconfig":{"layout":"x"}}"#))), Some(0));
+        // Whitespace around the colon and the value.
+        assert_eq!(read_layout(&temp_config("space", Some("{\"wallpaperconfig\":{\"layout\"\n:\t1}}"))), Some(1));
+        // A path that is not valid UTF-16 is just unreadable.
+        assert_eq!(read_layout(&[0xD800]), None);
+    }
+
+    #[test]
+    fn rectangles_are_relative_to_the_host() {
+        let host = RECT { left: -1080, top: 0, right: 1920, bottom: 1920 };
+        let win = RECT { left: 0, top: 100, right: 1920, bottom: 1180 };
+        assert_eq!(host_relative(&host, &win), (1080, 100, 1920, 1080));
+    }
+
+    #[test]
+    fn title_lists_the_render_windows() {
+        assert_eq!(build_title(false, &[]), "WPE-Host");
+        assert_eq!(build_title(true, &[]), "WPE-Host:clone");
+        assert_eq!(build_title(false, &[(0, 0, 1080, 1920)]), "WPE-Host|0,0,1080,1920");
+        assert_eq!(
+            build_title(false, &[(0, 0, 1080, 1920), (1080, 0, 1920, 1080)]),
+            "WPE-Host|0,0,1080,1920;1080,0,1920,1080"
+        );
+        assert_eq!(build_title(true, &[(-5, 0, 10, 10)]), "WPE-Host:clone|-5,0,10,10");
+    }
+
+    #[test]
+    fn a_long_title_stops_at_a_whole_rectangle() {
+        let rects = vec![(0, 0, 1920, 1080); 200];
+        let title = build_title(false, &rects);
+        assert!(title.len() <= TITLE_MAX, "{}", title.len());
+        assert!(title.starts_with("WPE-Host|0,0,1920,1080;"));
+        // Nothing half-written: every part is a full x,y,w,h.
+        for part in title["WPE-Host|".len()..].split(';') {
+            assert_eq!(part, "0,0,1920,1080");
+        }
+        // And it is full: one more rectangle would not have fit.
+        assert!(title.len() + ";0,0,1920,1080".len() > TITLE_MAX);
     }
 }

@@ -15,6 +15,12 @@ check:
 	$(CARGO) test --locked -p wpe-bridge
 	$(CARGO) test --locked -p wpehost
 
+# Needs cargo-llvm-cov and the llvm-tools-preview component. The windows-only
+# glue in wpehost shows as uncovered on purpose; it cannot run on Linux.
+coverage:
+	$(CARGO) llvm-cov --locked -p wpe-bridge --summary-only
+	$(CARGO) llvm-cov --locked -p wpehost --summary-only
+
 clean:
 	$(CARGO) clean
 
@@ -37,4 +43,4 @@ install:
 	    > $(DESTDIR)/etc/xdg/autostart/wpe-bridge.desktop
 	install -Dm 644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/wpe-bridge/LICENSE
 
-.PHONY: all check clean install
+.PHONY: all check coverage clean install

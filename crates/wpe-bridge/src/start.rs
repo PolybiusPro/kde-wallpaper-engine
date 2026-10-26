@@ -64,7 +64,9 @@ fn launcher(paths: &Paths) -> String {
     }
 }
 
-fn start_engine(paths: &Paths, proton: &Path, host_exe: &Path, launcher: &str) -> std::io::Result<()> {
+/// Proton's own launch script, inside the Steam Linux Runtime, running wpehost
+/// (which then starts the launcher) with the environment Steam would give it.
+fn engine_command(paths: &Paths, proton: &Path, host_exe: &Path, launcher: &str) -> Command {
     let appid = APPID.to_string();
     let proton_dir = proton.parent().unwrap_or(Path::new("/"));
     let mut cmd = Command::new(paths.slr.join("_v2-entry-point"));
@@ -89,10 +91,13 @@ fn start_engine(paths: &Paths, proton: &Path, host_exe: &Path, launcher: &str) -
         .env("STEAM_COMPAT_MOUNTS", &paths.slr)
         .env("STEAM_COMPAT_TOOL_PATHS", format!("{}:{}", proton_dir.display(), paths.slr.display()))
         .env("STEAM_COMPAT_LAUNCHER_SERVICE", "proton")
-        .env("WINEDLLOVERRIDES", "wtsapi32=n,b")
-        .stdin(Stdio::null())
-        .stdout(append_log("engine.log"))
-        .stderr(append_log("engine.log"));
+        .env("WINEDLLOVERRIDES", "wtsapi32=n,b");
+    cmd
+}
+
+fn start_engine(paths: &Paths, proton: &Path, host_exe: &Path, launcher: &str) -> std::io::Result<()> {
+    let mut cmd = engine_command(paths, proton, host_exe, launcher);
+    cmd.stdin(Stdio::null()).stdout(append_log("engine.log")).stderr(append_log("engine.log"));
     detach(&mut cmd).spawn().map(|_| ())
 }
 
@@ -161,4 +166,99 @@ pub fn run() -> i32 {
     }
     log("done");
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::Scratch;
+    use std::ffi::OsStr;
+    use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
+
+    fn paths(library: &Path) -> Paths {
+        Paths {
+            install: library.join("common/wallpaper_engine"),
+            library: library.to_path_buf(),
+            steam: PathBuf::from("/steam"),
+            slr: PathBuf::from("/slr"),
+            compat: library.join("compatdata/431960"),
+            proton: None,
+            tool: None,
+        }
+    }
+
+    #[test]
+    fn the_launcher_path_follows_which_folder_s_points_at() {
+        let s = Scratch::new();
+        let p = paths(&s.path().join("steamapps"));
+        let dosdevices = p.compat.join("pfx/dosdevices");
+        fs::create_dir_all(&dosdevices).unwrap();
+
+        // No s: drive at all: the old layout.
+        assert_eq!(launcher(&p), r"S:\steamapps\common\wallpaper_engine\launcher.exe");
+        // Older Proton: S: is steamapps itself.
+        symlink(&p.library, dosdevices.join("s:")).unwrap();
+        assert_eq!(launcher(&p), r"S:\common\wallpaper_engine\launcher.exe");
+        // Newer Proton: S: is the library root, one level up.
+        fs::remove_file(dosdevices.join("s:")).unwrap();
+        symlink(p.library.parent().unwrap(), dosdevices.join("s:")).unwrap();
+        assert_eq!(launcher(&p), r"S:\steamapps\common\wallpaper_engine\launcher.exe");
+    }
+
+    #[test]
+    fn the_engine_command_goes_through_the_runtime_and_proton() {
+        let p = paths(Path::new("/lib/steamapps"));
+        let cmd = engine_command(&p, Path::new("/tools/p/proton"), Path::new("/share/wpehost.exe"), r"S:\x\launcher.exe");
+        assert_eq!(cmd.get_program(), "/slr/_v2-entry-point");
+        let args: Vec<&OsStr> = cmd.get_args().collect();
+        assert_eq!(
+            args,
+            [
+                "--verb=waitforexitandrun",
+                "--",
+                "/tools/p/proton",
+                "waitforexitandrun",
+                "/share/wpehost.exe",
+                r"S:\x\launcher.exe",
+                "-run",
+                "wallpaper64.exe",
+                "-nobrowse",
+            ]
+        );
+        assert_eq!(cmd.get_current_dir(), Some(p.install.as_path()));
+    }
+
+    #[test]
+    fn the_engine_command_sets_the_environment_steam_would() {
+        let p = paths(Path::new("/lib/steamapps"));
+        let cmd = engine_command(&p, Path::new("/tools/p/proton"), Path::new("/h.exe"), "l");
+        let env = |k: &str| {
+            cmd.get_envs().find(|(n, _)| *n == k).and_then(|(_, v)| v).map(|v| v.to_string_lossy().into_owned())
+        };
+        assert_eq!(env("SteamAppId").as_deref(), Some("431960"));
+        assert_eq!(env("STEAM_COMPAT_APP_ID").as_deref(), Some("431960"));
+        assert_eq!(env("STEAM_COMPAT_DATA_PATH").as_deref(), Some("/lib/steamapps/compatdata/431960"));
+        assert_eq!(env("STEAM_COMPAT_INSTALL_PATH").as_deref(), Some("/lib/steamapps/common/wallpaper_engine"));
+        assert_eq!(env("STEAM_COMPAT_LIBRARY_PATHS").as_deref(), Some("/steam/steamapps:/lib/steamapps"));
+        assert_eq!(env("STEAM_COMPAT_TOOL_PATHS").as_deref(), Some("/tools/p:/slr"));
+        assert_eq!(env("STEAM_COMPAT_MOUNTS").as_deref(), Some("/slr"));
+        assert_eq!(env("WINEDLLOVERRIDES").as_deref(), Some("wtsapi32=n,b"));
+    }
+
+    #[test]
+    fn timestamps_are_clock_times() {
+        let t = timestamp();
+        let parts: Vec<&str> = t.split(':').collect();
+        assert_eq!(parts.len(), 3, "{t}");
+        assert!(parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_digit())), "{t}");
+    }
+
+    #[test]
+    fn a_detached_child_runs_in_its_own_session() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", "exit 0"]);
+        let mut child = detach(&mut cmd).spawn().unwrap();
+        assert!(child.wait().unwrap().success());
+    }
 }

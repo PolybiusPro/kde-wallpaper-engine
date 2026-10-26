@@ -84,3 +84,16 @@ pub fn run(arg: Option<&str>) -> i32 {
     }
     0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Anything past the argument check changes the real desktop (KWin config,
+    // plasmashell), so only the usage error is run here.
+    #[test]
+    fn an_unknown_argument_is_a_usage_error() {
+        assert_eq!(run(Some("--bogus")), 2);
+        assert_eq!(run(Some("")), 2);
+    }
+}

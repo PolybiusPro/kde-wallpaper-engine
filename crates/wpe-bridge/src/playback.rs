@@ -96,6 +96,30 @@ fn control(cmd: &str) -> bool {
     rc == 0
 }
 
+/// What the playback logic needs from the machine, so tests can fake it.
+trait Host {
+    fn engine_pid(&self) -> Option<u32>;
+    /// The `general.user` settings from the engine's config.json.
+    fn user_settings(&self) -> Map<String, Value>;
+    fn control(&self, cmd: &str) -> bool;
+}
+
+struct Real;
+
+impl Host for Real {
+    fn engine_pid(&self) -> Option<u32> {
+        proc::find("wallpaper64.exe")
+    }
+
+    fn user_settings(&self) -> Map<String, Value> {
+        settings(&std::fs::read_to_string(Config::load().install.join("config.json")).unwrap_or_default())
+    }
+
+    fn control(&self, cmd: &str) -> bool {
+        control(cmd)
+    }
+}
+
 #[derive(Default)]
 struct Playback {
     /// Last state from the KWin script.
@@ -119,33 +143,32 @@ impl Playback {
         self.schedule(SETTLE);
     }
 
-    fn apply(&mut self) {
+    fn apply(&mut self, host: &dyn Host) {
         self.due = None;
         let Some(state) = self.state.as_deref() else { return };
-        if proc::find("wallpaper64.exe").is_none() {
+        if host.engine_pid().is_none() {
             return;
         }
-        let json = std::fs::read_to_string(Config::load().install.join("config.json")).unwrap_or_default();
-        let want = desired(state, &settings(&json));
+        let want = desired(state, &host.user_settings());
         if want == self.applied.unwrap_or("run") {
             return;
         }
         // Only undo what we did, so a pause made in the engine's UI survives.
         let ok = if want == "run" {
-            control("play")
+            host.control("play")
         } else {
             if self.applied == Some("stop") {
-                control("play"); // a stopped engine does not take a pause
+                host.control("play"); // a stopped engine does not take a pause
             }
-            control(want)
+            host.control(want)
         };
         if ok {
             self.applied = if want == "run" { None } else { Some(want) };
         }
     }
 
-    fn watch_engine(&mut self) {
-        let pid = proc::find("wallpaper64.exe");
+    fn watch_engine(&mut self, host: &dyn Host) {
+        let pid = host.engine_pid();
         if pid != self.pid {
             let show = |p: Option<u32>| p.map_or("None".to_string(), |p| p.to_string());
             log(&format!("engine pid {} -> {}", show(self.pid), show(pid)));
@@ -190,10 +213,10 @@ pub fn run() -> i32 {
         }
         let now = Instant::now();
         if playback.due.is_some_and(|d| d <= now) {
-            playback.apply();
+            playback.apply(&Real);
         }
         if next_watch <= now {
-            playback.watch_engine();
+            playback.watch_engine(&Real);
             next_watch = now + WATCH;
         }
     }
@@ -227,5 +250,196 @@ mod tests {
         assert_eq!(desired("fullscreen,none", &u), "run");
         assert_eq!(desired("", &u), "run");
         assert_eq!(desired("unknownkind", &u), "run");
+    }
+
+    use std::cell::{Cell, RefCell};
+
+    /// A fake machine: an engine that may be running, user settings, and a log
+    /// of every control command. `fail` makes control report failure.
+    struct Fake {
+        pid: Cell<Option<u32>>,
+        user: Map<String, Value>,
+        sent: RefCell<Vec<String>>,
+        fail: Cell<bool>,
+    }
+
+    impl Fake {
+        fn new() -> Fake {
+            Fake { pid: Cell::new(Some(100)), user: user(), sent: RefCell::default(), fail: Cell::new(false) }
+        }
+
+        fn sent(&self) -> Vec<String> {
+            self.sent.borrow().clone()
+        }
+    }
+
+    impl Host for Fake {
+        fn engine_pid(&self) -> Option<u32> {
+            self.pid.get()
+        }
+
+        fn user_settings(&self) -> Map<String, Value> {
+            self.user.clone()
+        }
+
+        fn control(&self, cmd: &str) -> bool {
+            self.sent.borrow_mut().push(cmd.to_string());
+            !self.fail.get()
+        }
+    }
+
+    fn with_state(state: &str) -> Playback {
+        let mut p = Playback::default();
+        p.set_state(state.to_string());
+        p
+    }
+
+    #[test]
+    fn settings_edge_cases() {
+        assert!(settings("").is_empty());
+        assert!(settings("[1,2]").is_empty());
+        assert!(settings(r#"{"a":{"general":{}}}"#).is_empty());
+        // A profile whose user block is not an object yields nothing, and the search stops there.
+        assert!(settings(r#"{"a":{"general":{"user":5}},"b":{"general":{"user":{"x":"y"}}}}"#).is_empty());
+        // Profiles without a general block are skipped.
+        assert_eq!(settings(r#"{"a":{"nope":1},"b":{"general":{"user":{"x":"y"}}}}"#).len(), 1);
+    }
+
+    #[test]
+    fn rank_orders_run_pause_stop_and_defaults_to_run() {
+        assert_eq!(rank("run"), 0);
+        assert_eq!(rank("pause"), 1);
+        assert_eq!(rank("stop"), 2);
+        assert_eq!(rank("whatever"), 0);
+    }
+
+    #[test]
+    fn a_missing_or_odd_setting_means_run() {
+        let none = Map::new();
+        assert_eq!(desired("fullscreen", &none), "run");
+        let odd = settings(r#"{"a":{"general":{"user":{"playbackfullscreen":"explode","playbackmaximized":5}}}}"#);
+        assert_eq!(desired("fullscreen", &odd), "run");
+        assert_eq!(desired("maximized", &odd), "run");
+    }
+
+    #[test]
+    fn set_state_schedules_and_only_logs_changes() {
+        let mut p = Playback::default();
+        assert!(p.due.is_none());
+        p.set_state("fullscreen".into());
+        assert_eq!(p.state.as_deref(), Some("fullscreen"));
+        assert!(p.due.is_some());
+        p.due = None;
+        p.set_state("fullscreen".into());
+        assert!(p.due.is_some(), "a repeated state still reschedules");
+    }
+
+    #[test]
+    fn nothing_happens_without_a_state_or_an_engine() {
+        let host = Fake::new();
+        let mut p = Playback::default();
+        p.schedule(Duration::ZERO);
+        p.apply(&host);
+        assert!(p.due.is_none());
+        assert!(host.sent().is_empty());
+
+        let mut p = with_state("fullscreen");
+        host.pid.set(None);
+        p.apply(&host);
+        assert!(host.sent().is_empty());
+        assert_eq!(p.applied, None);
+    }
+
+    #[test]
+    fn a_covered_screen_pauses_and_uncovering_plays() {
+        let host = Fake::new();
+        let mut p = with_state("fullscreen");
+        p.apply(&host);
+        assert_eq!(host.sent(), ["pause"]);
+        assert_eq!(p.applied, Some("pause"));
+
+        // The same state again is a no-op.
+        p.apply(&host);
+        assert_eq!(host.sent(), ["pause"]);
+
+        p.set_state("none".into());
+        p.apply(&host);
+        assert_eq!(host.sent(), ["pause", "play"]);
+        assert_eq!(p.applied, None);
+    }
+
+    #[test]
+    fn going_from_stop_to_pause_plays_first() {
+        let host = Fake::new();
+        let mut p = with_state("maximized");
+        p.apply(&host);
+        assert_eq!(host.sent(), ["stop"]);
+        assert_eq!(p.applied, Some("stop"));
+
+        p.set_state("fullscreen".into());
+        p.apply(&host);
+        assert_eq!(host.sent(), ["stop", "play", "pause"]);
+        assert_eq!(p.applied, Some("pause"));
+    }
+
+    #[test]
+    fn a_pause_made_in_the_ui_survives() {
+        // We never applied anything, so "run" must not send play.
+        let host = Fake::new();
+        let mut p = with_state("none");
+        p.apply(&host);
+        assert!(host.sent().is_empty());
+    }
+
+    #[test]
+    fn a_failed_command_is_retried_next_time() {
+        let host = Fake::new();
+        host.fail.set(true);
+        let mut p = with_state("fullscreen");
+        p.apply(&host);
+        assert_eq!(p.applied, None);
+
+        host.fail.set(false);
+        p.apply(&host);
+        assert_eq!(host.sent(), ["pause", "pause"]);
+        assert_eq!(p.applied, Some("pause"));
+    }
+
+    #[test]
+    fn a_new_engine_forgets_what_we_sent_and_gets_time_to_start() {
+        let host = Fake::new();
+        let mut p = with_state("fullscreen");
+        p.apply(&host);
+        assert_eq!(p.applied, Some("pause"));
+
+        p.watch_engine(&host);
+        assert_eq!(p.pid, Some(100));
+        assert_eq!(p.applied, None, "the first sighting is a new engine");
+        assert!(p.due.is_some());
+
+        p.due = None;
+        p.watch_engine(&host);
+        assert!(p.due.is_none(), "same engine, nothing to do");
+
+        host.pid.set(Some(200));
+        p.applied = Some("pause");
+        p.watch_engine(&host);
+        assert_eq!(p.pid, Some(200));
+        assert_eq!(p.applied, None);
+        assert!(p.due.is_some());
+    }
+
+    #[test]
+    fn an_engine_that_goes_away_schedules_nothing() {
+        let host = Fake::new();
+        let mut p = Playback::default();
+        p.watch_engine(&host);
+        p.due = None;
+        host.pid.set(None);
+        p.applied = Some("stop");
+        p.watch_engine(&host);
+        assert_eq!(p.pid, None);
+        assert_eq!(p.applied, None);
+        assert!(p.due.is_none());
     }
 }

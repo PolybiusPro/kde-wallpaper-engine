@@ -7,7 +7,7 @@ use crate::steam::Paths;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
-const COMMANDS: [&str; 5] = ["pause", "play", "stop", "mute", "unmute"];
+pub const COMMANDS: [&str; 5] = ["pause", "play", "stop", "mute", "unmute"];
 
 fn exec_in_game(engine_args: &str) -> i32 {
     let paths = Paths::resolve(&Config::load(), false);
@@ -34,4 +34,20 @@ pub fn control(cmd: Option<&str>) -> i32 {
         return 1;
     }
     exec_in_game(&format!(" -control {cmd}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Only the paths that return before touching the engine: a valid command
+    // would run `wine` inside the real container.
+    #[test]
+    fn a_missing_or_unknown_command_is_a_usage_error() {
+        assert_eq!(control(None), 2);
+        assert_eq!(control(Some("")), 2);
+        assert_eq!(control(Some("explode")), 2);
+        assert_eq!(control(Some("PAUSE")), 2);
+        assert_eq!(control(Some("pause --extra")), 2);
+    }
 }
