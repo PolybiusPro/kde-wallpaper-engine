@@ -6,10 +6,20 @@ Developed and tested on CachyOS, Plasma 6.8 (Wayland), native Steam, Wallpaper E
 
 ## Requirements
 
+Runtime:
+
 - Wallpaper Engine installed through Steam, with a Proton version set for it
-- Steam Linux Runtime (the Proton launch goes through its container service)
-- KDE Plasma 6 on Wayland, with `kwriteconfig6`, `busctl`, `systemctl --user`
-- To build: Rust (rustup, with the `x86_64-pc-windows-gnu` target) and mingw-w64 as the linker
+- Steam and the Steam Linux Runtime (the Proton launch goes through its container service)
+- KDE Plasma 6 on Wayland: `plasma-workspace` (the wallpaper plugin loads in plasmashell), `kwin`, and `kpipewire` (the plugin streams the engine window over PipeWire)
+- `kconfig` (`kwriteconfig6`, used by setup to enable the KWin script) and `systemd` (`systemctl --user`, to restart plasmashell)
+- A running user D-Bus session, which Plasma provides
+
+Build:
+
+- Rust from rustup, with the `x86_64-pc-windows-gnu` target (`wpehost` and `wtsapi32` are Windows binaries; Arch's `rust` does not ship that target)
+- `mingw-w64-gcc` as the linker for those two crates, and `make`
+
+Package names are the Arch ones. Other distributions name them differently.
 
 ## Install
 
