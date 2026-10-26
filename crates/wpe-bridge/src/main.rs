@@ -4,6 +4,7 @@
 
 mod config;
 mod launch;
+mod launchopt;
 mod playback;
 mod proc;
 mod setup;
@@ -29,13 +30,12 @@ fn main() -> ExitCode {
     let code = match cmd.as_str() {
         "start" => start::run(),
         "stop" => stop::run(),
-        "ui" => launch::ui(),
         "control" => launch::control(arg.as_deref()),
         "playback" => playback::run(),
         "setup" => setup::run(arg.as_deref()),
         "paths" => steam::print_paths(),
         _ => {
-            eprintln!("usage: wpe-bridge start|stop|ui|control|playback|setup|paths");
+            eprintln!("usage: wpe-bridge start|stop|control|playback|setup|paths");
             2
         }
     };

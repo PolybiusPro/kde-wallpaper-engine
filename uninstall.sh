@@ -8,6 +8,7 @@ SHARE=$HOME/.local/share
 # KWin script and restarts plasmashell.
 "$BIN/wpe-bridge-setup" --remove
 pkill -x wpe-bridge 2>/dev/null   # the playback helper
+# wpe-bridge-ui and its menu entry come from an earlier version.
 rm -f "$BIN"/wpe-bridge "$BIN"/wpe-bridge-{start,stop,ui,control,playback,setup} \
       "$HOME/.config/autostart/wpe-bridge.desktop" "$SHARE/applications/wpe-bridge-ui.desktop"
 rm -rf "$SHARE/wpe-bridge" "$SHARE/kwin/scripts/wpe-bridge" "$SHARE/plasma/wallpapers/org.local.wpebridge"

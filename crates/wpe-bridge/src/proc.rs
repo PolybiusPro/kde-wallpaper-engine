@@ -38,15 +38,6 @@ pub fn signal(pid: u32, sig: i32) {
     unsafe { libc::kill(pid as i32, sig) };
 }
 
-/// True if some process's command line contains `needle`.
-pub fn cmdline_contains(needle: &str) -> bool {
-    pids().into_iter().any(|p| {
-        fs::read(format!("/proc/{p}/cmdline"))
-            .map(|c| String::from_utf8_lossy(&c).replace('\0', " ").contains(needle))
-            .unwrap_or(false)
-    })
-}
-
 /// Polls `cond` once a second for up to `secs` seconds; true as soon as it holds.
 pub fn wait_for(secs: u32, mut cond: impl FnMut() -> bool) -> bool {
     for n in 0..secs {

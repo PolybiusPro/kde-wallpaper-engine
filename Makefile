@@ -5,7 +5,7 @@ CARGOFLAGS ?= --release --locked
 WIN_TARGET = x86_64-pc-windows-gnu
 WIN_DIR = target/$(WIN_TARGET)/release
 PREFIX ?= /usr
-COMMANDS = start stop ui control playback setup
+COMMANDS = start stop control playback setup
 
 all:
 	$(CARGO) build $(CARGOFLAGS) -p wpe-bridge
@@ -25,15 +25,14 @@ clean:
 install:
 	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/wpe-bridge \
 	    $(DESTDIR)$(PREFIX)/share/kwin/scripts $(DESTDIR)$(PREFIX)/share/plasma/wallpapers \
-	    $(DESTDIR)$(PREFIX)/share/applications $(DESTDIR)/etc/xdg/autostart
+	    $(DESTDIR)/etc/xdg/autostart
 	install -m 755 target/release/wpe-bridge $(DESTDIR)$(PREFIX)/bin/
 	for f in $(COMMANDS); do \
 	    ln -sf wpe-bridge $(DESTDIR)$(PREFIX)/bin/wpe-bridge-$$f; done
-	install -m 644 $(WIN_DIR)/wpehost.exe $(WIN_DIR)/wtsapi32.dll share/close-ui.js \
+	install -m 644 $(WIN_DIR)/wpehost.exe $(WIN_DIR)/wtsapi32.dll \
 	    $(DESTDIR)$(PREFIX)/share/wpe-bridge/
 	cp -r --no-preserve=mode kwin/wpe-bridge $(DESTDIR)$(PREFIX)/share/kwin/scripts/
 	cp -r --no-preserve=mode plasma/org.local.wpebridge $(DESTDIR)$(PREFIX)/share/plasma/wallpapers/
-	install -m 644 share/wpe-bridge-ui.desktop $(DESTDIR)$(PREFIX)/share/applications/
 	sed "s#@BINDIR@#$(PREFIX)/bin#" share/wpe-bridge.desktop.in \
 	    > $(DESTDIR)/etc/xdg/autostart/wpe-bridge.desktop
 	install -Dm 644 LICENSE $(DESTDIR)$(PREFIX)/share/licenses/wpe-bridge/LICENSE

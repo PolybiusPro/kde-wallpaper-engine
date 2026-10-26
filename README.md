@@ -13,7 +13,7 @@ Wine has no Progman/WorkerW desktop layer, so the engine never finds a window to
 - `kwin/wpe-bridge` is a KWin script that parks the host window off-screen, and tells each screen which window to stream, which part of it to crop, and whether the engine has a wallpaper there.
 - `plasma/org.local.wpebridge` is a Plasma wallpaper plugin that streams that window over PipeWire and crops it per screen. On a screen where the engine has no wallpaper (removed, or engine not running) it shows that screen's own regular Plasma wallpaper, copied from its `org.kde.image` settings.
 
-`crates/wpe-bridge` is the native side: one `wpe-bridge` binary that is also installed under six names, `wpe-bridge-start` (starts everything, closes the engine's UI window), `wpe-bridge-stop`, `wpe-bridge-ui` (opens the engine's UI to pick wallpapers per monitor, mute, pause), `wpe-bridge-control` (sends `pause`, `play`, `stop`, `mute` or `unmute` to the running engine), `wpe-bridge-playback` (see below) and `wpe-bridge-setup`. `wpe-bridge paths` prints what it resolved: the Steam library, Proton tool and Linux runtime.
+`crates/wpe-bridge` is the native side: one `wpe-bridge` binary that is also installed under five names, `wpe-bridge-start` (starts everything), `wpe-bridge-stop`, `wpe-bridge-control` (sends `pause`, `play`, `stop`, `mute` or `unmute` to the running engine), `wpe-bridge-playback` (see below) and `wpe-bridge-setup`. `wpe-bridge paths` prints what it resolved: the Steam library, Proton tool and Linux runtime.
 
 ## Wallpaper types
 
@@ -52,7 +52,9 @@ WPE_PROTON=/path/to/compatibilitytools.d/<your-proton>/proton   # optional
 
 Proton follows Steam: `wpe-bridge-start` reads the compatibility tool Steam has for Wallpaper Engine (its per-game choice, else the default tool) from `~/.local/share/Steam/config/config.vdf` and finds that tool's `proton` script, so changing it in Steam's settings is enough. Set `WPE_PROTON` only to force a different one.
 
-Then pick "Wallpaper Engine Bridge" as the wallpaper type on each screen (Desktop settings), run `wpe-bridge-start`, and `wpe-bridge-ui` to choose wallpapers. `wpe-bridge-start` also runs at login. `./uninstall.sh` reverses it.
+Then pick "Wallpaper Engine Bridge" as the wallpaper type on each screen (Desktop settings), and run `wpe-bridge-start`. It also runs at login. `./uninstall.sh` reverses it.
+
+Setup also sets Wallpaper Engine's launch option in Steam to `wpe-bridge-start %command%`, so Play in Steam starts the bridge instead of the stock launcher. Steam rewrites its config when it exits, so this is only written while Steam is closed: if Steam is running, setup says so, and you close Steam and run `wpe-bridge-setup` again. Launch options you already have are left alone. A backup of the changed file is kept next to it as `localconfig.vdf.wpe-bridge.bak`.
 
 ## Known limits
 

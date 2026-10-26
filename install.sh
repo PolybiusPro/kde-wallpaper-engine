@@ -18,19 +18,20 @@ BIN=$HOME/.local/bin
 SHARE=$HOME/.local/share
 WIN=target/x86_64-pc-windows-gnu/release
 mkdir -p "$BIN" "$SHARE/wpe-bridge" "$SHARE/kwin/scripts" "$SHARE/plasma/wallpapers" \
-         "$SHARE/applications" "$HOME/.config/autostart"
+         "$HOME/.config/autostart"
 
 # Replace the old binary by rename, so a running helper keeps its inode.
 install -m 755 target/release/wpe-bridge "$BIN/wpe-bridge.new"
 mv -f "$BIN/wpe-bridge.new" "$BIN/wpe-bridge"
-for cmd in start stop ui control playback setup; do ln -sf wpe-bridge "$BIN/wpe-bridge-$cmd"; done
-install -m 644 "$WIN/wpehost.exe" "$WIN/wtsapi32.dll" share/close-ui.js "$SHARE/wpe-bridge/"
+for cmd in start stop control playback setup; do ln -sf wpe-bridge "$BIN/wpe-bridge-$cmd"; done
+rm -f "$BIN/wpe-bridge-ui"   # an earlier version installed this command
+install -m 644 "$WIN/wpehost.exe" "$WIN/wtsapi32.dll" "$SHARE/wpe-bridge/"
 
 rm -rf "$SHARE/kwin/scripts/wpe-bridge" "$SHARE/plasma/wallpapers/org.local.wpebridge"
 cp -r kwin/wpe-bridge "$SHARE/kwin/scripts/wpe-bridge"
 cp -r plasma/org.local.wpebridge "$SHARE/plasma/wallpapers/org.local.wpebridge"
 
-install -m 644 share/wpe-bridge-ui.desktop "$SHARE/applications/"
+rm -f "$SHARE/applications/wpe-bridge-ui.desktop"   # an earlier version installed a menu entry
 sed "s#@BINDIR@#$BIN#" share/wpe-bridge.desktop.in > "$HOME/.config/autostart/wpe-bridge.desktop"
 
 # Puts wtsapi32.dll into the game folder, enables the KWin script, restarts plasmashell.

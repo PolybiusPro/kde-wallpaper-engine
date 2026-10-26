@@ -32,7 +32,7 @@ pub fn config_file() -> PathBuf {
     xdg("XDG_CONFIG_HOME", ".config").join("wpe-bridge/config")
 }
 
-/// Where the package keeps wpehost.exe, close-ui.js and wtsapi32.dll: next to
+/// Where the package keeps wpehost.exe and wtsapi32.dll: next to
 /// the bin directory the binary lives in, so ~/.local and /usr both work.
 pub fn share_dir() -> PathBuf {
     let exe = env::current_exe().and_then(|p| p.canonicalize()).unwrap_or_default();

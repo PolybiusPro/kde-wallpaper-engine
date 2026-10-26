@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Wallpaper Engine
-Comment=Choose wallpapers per monitor, mute and pause
-Exec=wpe-bridge-ui
-Icon=preferences-desktop-wallpaper
-Categories=Settings;
-Terminal=false

@@ -1,9 +1,9 @@
-//! `ui` and `control`: run the engine's own command line inside its running
-//! Proton container, through the Steam Linux Runtime launch client.
+//! `control`: run the engine's own command line inside its running Proton
+//! container, through the Steam Linux Runtime launch client.
 
 use crate::config::{Config, APPID};
+use crate::proc;
 use crate::steam::Paths;
-use crate::{proc, start};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
@@ -19,15 +19,6 @@ fn exec_in_game(engine_args: &str) -> i32 {
         .exec();
     eprintln!("cannot run {}: {err}", paths.launch_client().display());
     127
-}
-
-/// Opens the control UI (pick a wallpaper per monitor, mute, ...). Closing it
-/// leaves the engine up.
-pub fn ui() -> i32 {
-    if proc::find("wallpaper64.exe").is_none() {
-        start::run();
-    }
-    exec_in_game("")
 }
 
 /// Sends one command to the running engine. Does nothing when it is not

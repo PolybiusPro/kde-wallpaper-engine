@@ -1,10 +1,11 @@
 //! Per-user setup after installing the package: `wpe-bridge-setup [--remove]`.
 //! Puts wtsapi32.dll into Wallpaper Engine's folder (a package cannot write into
-//! a Steam library), turns on the KWin script and restarts plasmashell so it
-//! picks up the wallpaper plugin. --remove undoes all three.
+//! a Steam library), turns on the KWin script, restarts plasmashell so it
+//! picks up the wallpaper plugin, and points Steam's Play button at the bridge.
+//! --remove undoes all four.
 
 use crate::config::{self, Config};
-use crate::stop;
+use crate::{launchopt, stop};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
@@ -72,10 +73,11 @@ pub fn run(arg: Option<&str>) -> i32 {
         return 1;
     }
     let _ = Command::new("systemctl").args(["--user", "restart", "plasma-plasmashell.service"]).status();
+    launchopt::apply(enable);
 
     if enable {
         println!(
-            "Set up. Next:\n  1. Desktop settings -> Wallpaper: pick \"Wallpaper Engine Bridge\" on each screen\n  2. wpe-bridge-start   (also runs at login), then wpe-bridge-ui to choose wallpapers"
+            "Set up. Next:\n  1. Desktop settings -> Wallpaper: pick \"Wallpaper Engine Bridge\" on each screen\n  2. wpe-bridge-start   (also runs at login)"
         );
     } else {
         println!("Removed. Set each screen back to a regular wallpaper in Desktop settings.");

@@ -108,21 +108,6 @@ fn in_game_works(paths: &Paths) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// Loads, runs and unloads the one-shot KWin script that closes the engine's UI window.
-fn close_ui(script: &Path) {
-    let Ok(conn) = zbus::blocking::Connection::session() else { return };
-    let _ = conn.call_method(
-        Some("org.kde.KWin"),
-        "/Scripting",
-        Some("org.kde.kwin.Scripting"),
-        "loadScript",
-        &(script.to_string_lossy().into_owned(), "wpe-close-ui"),
-    );
-    let _ = conn.call_method(Some("org.kde.KWin"), "/Scripting", Some("org.kde.kwin.Scripting"), "start", &());
-    std::thread::sleep(Duration::from_secs(1));
-    let _ = conn.call_method(Some("org.kde.KWin"), "/Scripting", Some("org.kde.kwin.Scripting"), "unloadScript", &"wpe-close-ui");
-}
-
 pub fn run() -> i32 {
     let cfg = Config::load();
     let paths = Paths::resolve(&cfg, true);
@@ -173,18 +158,6 @@ pub fn run() -> i32 {
     if !proc::wait_for(60, || in_game_works(&paths)) {
         log("launcher service not reachable");
         return 1;
-    }
-    std::thread::sleep(Duration::from_secs(8)); // let the engine finish initialising and open its UI
-
-    // The engine opens its control UI on startup; with no tray under Wine it just
-    // sits mid-screen, so close it. Closing the UI does not stop the engine. The UI
-    // is slow to create its window, so retry until its process has exited.
-    for _ in 0..30 {
-        if !proc::cmdline_contains("wallpaperui.exe -parentprocess") {
-            break;
-        }
-        close_ui(&share.join("close-ui.js"));
-        std::thread::sleep(Duration::from_secs(2));
     }
     log("done");
     0
