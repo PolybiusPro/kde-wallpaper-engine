@@ -11,10 +11,15 @@
 //!
 //! Pause and stop are global, so they are sent only when every screen showing
 //! the engine is covered; otherwise a screen you can see would freeze.
+//!
+//! A single covered screen is paused by the engine itself: the KWin script also
+//! reports the covered screens' rectangles (SetCovered), which go to wpehost
+//! through a file, and wpehost keeps a stand-in Wine window on each of them.
 
-use crate::config::Config;
+use crate::config::{self, Config};
 use crate::proc;
 use serde_json::{Map, Value};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
@@ -37,6 +42,52 @@ impl Service {
     fn set_state(&self, state: String) {
         let _ = self.0.send(state);
     }
+
+    /// The covered screens as "x,y,w,h,kind;..." with kind "fullscreen" or "maximized".
+    fn set_covered(&self, rects: String) {
+        if let Err(e) = write_covers(&cover_file(), &cover_lines(&rects, &Real.user_settings())) {
+            log(&format!("cannot write the cover file: {e}"));
+        }
+    }
+}
+
+/// Where wpehost looks for the covered screens (see `WPE_COVER_FILE` in start).
+pub fn cover_file() -> PathBuf {
+    config::state_dir().join("cover")
+}
+
+/// The cover file's lines for "x,y,w,h,kind;..."; anything malformed is dropped.
+///
+/// Only screens whose setting is "pause" get a line. The engine stops every
+/// monitor at once, so a stop is left to the all-screens-covered rule above, and
+/// a "run" needs nothing.
+///
+/// The engine pauses a maximized stand-in on its own monitor, but it follows one
+/// foreground window for fullscreen, which only ever holds a single screen. So
+/// when both settings are the same action, a fullscreen window is passed on as a
+/// maximized one and every screen takes the reliable path.
+fn cover_lines(rects: &str, user: &Map<String, Value>) -> String {
+    let action = |kind: &str| user.get(&format!("playback{kind}")).and_then(Value::as_str).unwrap_or("run").to_string();
+    let as_maximized = action("fullscreen") == action("maximized");
+    let mut out = String::new();
+    for rect in rects.split(';') {
+        let f: Vec<&str> = rect.split(',').collect();
+        let numbers: Option<Vec<i32>> = f.iter().take(4).map(|v| v.trim().parse().ok()).collect();
+        let (Some(n), Some(kind)) = (numbers, f.get(4)) else { continue };
+        if n.len() != 4 || !matches!(*kind, "fullscreen" | "maximized") || action(kind) != "pause" {
+            continue;
+        }
+        let kind = if as_maximized { "maximized" } else { kind };
+        out.push_str(&format!("{} {} {} {} {kind}\n", n[0], n[1], n[2], n[3]));
+    }
+    out
+}
+
+/// Replaces the file in one step, so wpehost never reads half of it.
+pub fn write_covers(path: &Path, lines: &str) -> std::io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, lines)?;
+    std::fs::rename(&tmp, path)
 }
 
 fn log(msg: &str) {
@@ -200,6 +251,8 @@ pub fn run() -> i32 {
         }
     };
     log("playback helper started");
+    // Covers from an earlier session would pause screens nothing covers now.
+    let _ = write_covers(&cover_file(), "");
 
     let mut playback = Playback::default();
     let mut next_watch = Instant::now() + WATCH;
@@ -250,6 +303,52 @@ mod tests {
         assert_eq!(desired("fullscreen,none", &u), "run");
         assert_eq!(desired("", &u), "run");
         assert_eq!(desired("unknownkind", &u), "run");
+    }
+
+    fn pause_settings(fullscreen: &str, maximized: &str) -> Map<String, Value> {
+        let json = format!(
+            r#"{{"a":{{"general":{{"user":{{"playbackfullscreen":"{fullscreen}","playbackmaximized":"{maximized}"}}}}}}}}"#
+        );
+        settings(&json)
+    }
+
+    #[test]
+    fn cover_lines_keep_well_formed_screens_only() {
+        let differ = pause_settings("pause", "pause");
+        assert_eq!(
+            cover_lines("0,222,2560,1440,maximized;2560,0,1080,1920,fullscreen", &differ),
+            "0 222 2560 1440 maximized\n2560 0 1080 1920 maximized\n"
+        );
+        assert_eq!(cover_lines("", &differ), "");
+        let junk = "1,2,3,x,maximized;1,2,3,4,sideways;1,2,3,maximized;5,6,7,8,maximized";
+        assert_eq!(cover_lines(junk, &differ), "5 6 7 8 maximized\n");
+    }
+
+    #[test]
+    fn fullscreen_keeps_its_own_stand_in_when_the_settings_differ() {
+        let differ = pause_settings("pause", "run");
+        assert_eq!(cover_lines("0,0,10,10,fullscreen;20,0,10,10,maximized", &differ), "0 0 10 10 fullscreen\n");
+    }
+
+    #[test]
+    fn only_a_pause_gets_a_stand_in() {
+        let stop = pause_settings("stop", "pause");
+        // The engine stops every monitor at once, so a covered screen must not trigger it.
+        assert_eq!(cover_lines("0,0,10,10,fullscreen", &stop), "");
+        assert_eq!(cover_lines("0,0,10,10,maximized", &stop), "0 0 10 10 maximized\n");
+        assert_eq!(cover_lines("0,0,10,10,fullscreen", &Map::new()), "");
+    }
+
+    #[test]
+    fn the_cover_file_is_replaced_whole() {
+        let dir = std::env::temp_dir().join(format!("wpe-cover-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cover");
+        write_covers(&path, "a\n").unwrap();
+        write_covers(&path, "").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        assert!(!path.with_extension("tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     use std::cell::{Cell, RefCell};

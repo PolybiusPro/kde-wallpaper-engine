@@ -110,10 +110,28 @@ function isHost(w) {
 // The state is one word per screen showing the engine, in screen order:
 // "fullscreen", "maximized" or "none".
 var playbackSent = "";
+var coveredSent = null;
+
+// wpehost keeps a stand-in Wine window on every screen a native window covers,
+// so the engine pauses that monitor itself (it only sees Wine windows).
+function isCover(w) {
+    return w.caption === "WPE-Cover";
+}
+
+// The stand-in has to exist and fill the screen, nothing more: keep it below
+// everything, out of the taskbar, and see-through so no effect (blur) draws it.
+function hideCover(w) {
+    w.opacity = 0;
+    w.keepBelow = true;
+    w.noBorder = true;
+    w.skipTaskbar = true;
+    w.skipPager = true;
+    w.skipSwitcher = true;
+}
 
 // Windows of the engine itself (its UI is a Wine window) never count as covering.
 function engineWindow(w) {
-    return isHost(w) || /^(wallpaper|wpehost|launcher)/i.test(String(w.resourceClass));
+    return isHost(w) || isCover(w) || /^(wallpaper|wpehost|launcher)/i.test(String(w.resourceClass));
 }
 
 function covers(w, screen, skip) {
@@ -142,13 +160,28 @@ function updatePlayback(skip) {
     var b = bounds();
     var wins = renderWindows();
     var state = [];
+    var covered = [];
     workspace.screens.forEach(function (s) {
-        if (assigned(cropFor(s.geometry, b, wins), wins)) { state.push(coverKind(s, skip)); }
+        // A stopped engine has no render windows at all. Then every screen counts,
+        // or an uncovered screen would never be reported and the engine never resumed.
+        if (wins.length > 0 && !assigned(cropFor(s.geometry, b, wins), wins)) { return; }
+        var kind = coverKind(s, skip);
+        state.push(kind);
+        if (kind !== "none") {
+            var g = s.geometry;
+            // Relative to the host, like the render windows in its title.
+            covered.push([Math.round(g.x - b.x), Math.round(g.y - b.y), Math.round(g.width), Math.round(g.height), kind].join(","));
+        }
     });
     var joined = state.join(",");
     if (joined === playbackSent) { return; }
     playbackSent = joined;
     callDBus("org.local.WpeBridge", "/Playback", "org.local.WpeBridge.Playback", "SetState", joined);
+    var rects = covered.join(";");
+    if (rects !== coveredSent) {
+        coveredSent = rects;
+        callDBus("org.local.WpeBridge", "/Playback", "org.local.WpeBridge.Playback", "SetCovered", rects);
+    }
 }
 
 function park(w) {
@@ -172,10 +205,16 @@ function park(w) {
     // The render windows changed (or the engine restarted): report again, even
     // if the covered state is the same, so a restarted helper catches up.
     playbackSent = "";
+    coveredSent = null;
     updatePlayback();
 }
 
 function watch(w) {
+    if (isCover(w)) {
+        hideCover(w);
+        w.captionChanged.connect(function () { if (isCover(w)) { hideCover(w); } });
+        return;
+    }
     w.captionChanged.connect(function () { park(w); });
     w.frameGeometryChanged.connect(function () { park(w); updatePlayback(); });
     w.fullScreenChanged.connect(function () { park(w); updatePlayback(); });

@@ -18,24 +18,88 @@ use std::process::ExitCode;
 use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
+use windows_sys::Win32::Graphics::Gdi::{CreateRectRgn, GetStockObject, SetWindowRgn, BLACK_BRUSH, HBRUSH};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, EnumChildWindows, GetClassNameW,
-    GetMessageW, GetSystemMetrics, GetTopWindow, GetWindow, GetWindowRect, IsWindowVisible,
-    RegisterClassW, SetTimer, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
-    GW_HWNDNEXT, HWND_TOP, MSG, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_SHOWNA, WM_TIMER, WNDCLASSW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumChildWindows,
+    GetClassNameW, GetMessageW, GetSystemMetrics, GetTopWindow, GetWindow, GetWindowRect,
+    IsWindowVisible, RegisterClassW, SetForegroundWindow, SetTimer, SetWindowPos,
+    SetWindowTextW, ShowWindow, TranslateMessage, GW_HWNDNEXT, HWND_TOP, MSG,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_MAXIMIZE, SW_SHOWNA, WM_TIMER, WNDCLASSW,
     WS_CHILD, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_POPUP,
 };
 
 const MAX_PATH: usize = 260;
 /// The title is capped where the C host capped it.
 const TITLE_MAX: usize = 511;
+
+const COVER_CLASS: &str = "WPECover";
+
+/// A screen a native window covers: x, y, width, height relative to the host's
+/// corner (the same coordinates as the render windows in the title), and
+/// whether the window is fullscreen (otherwise maximized).
+type Cover = (i32, i32, i32, i32, bool);
+
+/// The bridge writes one "x y w h fullscreen|maximized" line per covered screen.
+fn parse_covers(text: &str) -> Vec<Cover> {
+    text.lines()
+        .filter_map(|line| {
+            let mut f = line.split_whitespace();
+            let mut n = || f.next()?.parse::<i32>().ok();
+            let (x, y, w, h) = (n()?, n()?, n()?, n()?);
+            let fullscreen = match f.next()? {
+                "fullscreen" => true,
+                "maximized" => false,
+                _ => return None,
+            };
+            (w > 0 && h > 0).then_some((x, y, w, h, fullscreen))
+        })
+        .collect()
+}
+
+/// Wallpaper Engine pauses a monitor when another program's window covers it,
+/// but it only sees Wine windows. For each screen a native window covers, keep a
+/// stand-in here that looks like the same kind of window to the engine, so it
+/// pauses that monitor and no other. The KWin script hides the stand-ins.
+///
+/// The engine treats a maximized window and the foreground window differently
+/// (its "maximized" and "fullscreen" settings), so a maximized stand-in stands
+/// for a maximized window and an exact-size foreground one for a fullscreen
+/// window. Wine has one foreground window, so only one fullscreen stand-in counts.
+unsafe fn sync_covers(windows: &mut Vec<(HWND, Cover)>, wanted: &[Cover], (ox, oy): (i32, i32)) {
+    let keep = windows.iter().zip(wanted).take_while(|(have, want)| have.1 == **want).count();
+    while windows.len() > keep {
+        if let Some((h, _)) = windows.pop() {
+            DestroyWindow(h);
+        }
+    }
+    for &c in &wanted[keep..] {
+        let (x, y, w, h, fullscreen) = c;
+        // Wine's desktop starts at its own origin, not the KDE one.
+        let hwnd = make(COVER_CLASS, "WPE-Cover", null_mut(), (ox + x, oy + y, w, h), WS_POPUP, WS_EX_NOACTIVATE);
+        if hwnd.is_null() {
+            continue;
+        }
+        // Only the engine has to see the whole rectangle; show one pixel of it.
+        SetWindowRgn(hwnd, CreateRectRgn(0, 0, 1, 1), 0);
+        ShowWindow(hwnd, if fullscreen { SW_SHOWNA } else { SW_MAXIMIZE });
+        if fullscreen {
+            SetForegroundWindow(hwnd);
+        }
+        windows.push((hwnd, c));
+    }
+}
+
+/// The cover file's path as Wine sees it: the Linux path under the Z: drive.
+fn cover_file() -> Option<String> {
+    let linux = std::env::var("WPE_COVER_FILE").ok()?;
+    Some(format!("Z:{}", linux.replace('/', "\\")))
+}
 
 /// Progman is asked to spawn the WorkerW pair with this message; ours already exist.
 const WM_SPAWN_WORKERW: u32 = 0x052C;
@@ -215,7 +279,7 @@ fn main() -> ExitCode {
 
 unsafe fn run() -> ExitCode {
     let hinst = GetModuleHandleW(null());
-    for cls in ["Progman", "WorkerW", "SHELLDLL_DefView"] {
+    for cls in ["Progman", "WorkerW", "SHELLDLL_DefView", COVER_CLASS] {
         let name = wide(cls);
         let wc = WNDCLASSW {
             style: 0,
@@ -287,6 +351,8 @@ unsafe fn run() -> ExitCode {
 
     SetTimer(progman, 1, 200, None);
 
+    let cover_path = cover_file();
+    let mut covers: Vec<(HWND, Cover)> = Vec::new();
     let mut last = String::new();
     let mut msg: MSG = std::mem::zeroed();
     while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
@@ -301,6 +367,10 @@ unsafe fn run() -> ExitCode {
                 raise(icons);
             }
             update_title(host, &config, &mut last);
+            if let Some(path) = &cover_path {
+                let text = std::fs::read_to_string(path).unwrap_or_default();
+                sync_covers(&mut covers, &parse_covers(&text), (vx, vy));
+            }
             continue;
         }
         TranslateMessage(&msg);
@@ -319,6 +389,17 @@ mod tests {
 
     fn w(s: &str) -> Vec<u16> {
         s.encode_utf16().collect()
+    }
+
+    #[test]
+    fn covers_parse_one_screen_per_line() {
+        assert_eq!(
+            parse_covers("0 222 2560 1440 maximized\n2560 0 1080 1920 fullscreen\n"),
+            [(0, 222, 2560, 1440, false), (2560, 0, 1080, 1920, true)]
+        );
+        assert!(parse_covers("").is_empty());
+        assert!(parse_covers("0 0 10 10\n0 0 0 10 maximized\n1 2 3 x maximized\n0 0 10 10 sideways").is_empty());
+        assert_eq!(parse_covers("junk\n-5 0 10 10 maximized"), [(-5, 0, 10, 10, false)]);
     }
 
     #[test]

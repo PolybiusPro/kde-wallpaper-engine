@@ -91,7 +91,11 @@ fn engine_command(paths: &Paths, proton: &Path, host_exe: &Path, launcher: &str)
         .env("STEAM_COMPAT_MOUNTS", &paths.slr)
         .env("STEAM_COMPAT_TOOL_PATHS", format!("{}:{}", proton_dir.display(), paths.slr.display()))
         .env("STEAM_COMPAT_LAUNCHER_SERVICE", "proton")
-        .env("WINEDLLOVERRIDES", "wtsapi32=n,b");
+        .env("WINEDLLOVERRIDES", "wtsapi32=n,b")
+        // Keep Proton on its X11 (XWayland) driver rather than native Wayland.
+        .env("PROTON_ENABLE_WAYLAND", "0")
+        // Where the playback helper lists the screens a native window covers.
+        .env("WPE_COVER_FILE", crate::playback::cover_file());
     cmd
 }
 
@@ -139,6 +143,7 @@ pub fn run() -> i32 {
     }
 
     if proc::find("wallpaper64.exe").is_none() {
+        let _ = crate::playback::write_covers(&crate::playback::cover_file(), "");
         // At login Steam starts alongside this; the game needs its client running.
         if !proc::wait_for(300, || proc::find("steamwebhelper").is_some()) {
             log("steam is not running");
@@ -244,6 +249,7 @@ mod tests {
         assert_eq!(env("STEAM_COMPAT_TOOL_PATHS").as_deref(), Some("/tools/p:/slr"));
         assert_eq!(env("STEAM_COMPAT_MOUNTS").as_deref(), Some("/slr"));
         assert_eq!(env("WINEDLLOVERRIDES").as_deref(), Some("wtsapi32=n,b"));
+        assert_eq!(env("PROTON_ENABLE_WAYLAND").as_deref(), Some("0"));
     }
 
     #[test]
