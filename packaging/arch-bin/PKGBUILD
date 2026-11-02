@@ -1,7 +1,7 @@
 # Repackages the prebuilt release tarball, so no Rust or mingw is needed.
 # Build with: PKGEXT='.pkg.tar.gz' makepkg -f
 pkgname=wpe-bridge
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc='Run Wallpaper Engine under Proton as the KDE Plasma wallpaper'
 arch=('x86_64')
@@ -9,7 +9,7 @@ url='https://github.com/PolybiusPro/kde-wallpaper-engine'
 license=('GPL-3.0-or-later')
 depends=('plasma-workspace' 'kwin' 'kpipewire' 'kconfig' 'steam' 'systemd')
 source=("$url/releases/download/v$pkgver/kde-wallpaper-engine-$pkgver-x86_64.tar.gz")
-sha256sums=('6c8b50e39e7e30a9bd9432b08919af8991c8f9a56be2388d182eaddd9f11b216')
+sha256sums=('b20c0aa2c0a7fcf1ce828c5396b7aa8df382c18f44f8b9811aa03ef4ef75ab16')
 
 package() {
   cd "kde-wallpaper-engine-$pkgver-x86_64"
