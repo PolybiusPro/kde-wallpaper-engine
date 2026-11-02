@@ -134,8 +134,14 @@ function engineWindow(w) {
     return isHost(w) || isCover(w) || /^(wallpaper|wpehost|launcher)/i.test(String(w.resourceClass));
 }
 
+// The logout/restart prompt is a screen-sized window on every screen. Counting it
+// would make wpehost map a stand-in that takes focus, and the prompt quits on focus loss.
+function transientOverlay(w) {
+    return w.resourceClass === "ksmserver-logout-greeter";
+}
+
 function covers(w, screen, skip) {
-    if (w === skip || w.minimized || w.deleted || !w.normalWindow || engineWindow(w)) { return false; }
+    if (w === skip || w.minimized || w.deleted || !w.normalWindow || engineWindow(w) || transientOverlay(w)) { return false; }
     if (w.desktops.length > 0 && w.desktops.indexOf(workspace.currentDesktop) < 0) { return false; }
     return w.output && w.output.name === screen.name;
 }
