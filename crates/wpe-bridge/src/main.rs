@@ -8,6 +8,7 @@ mod launchopt;
 mod playback;
 mod proc;
 mod setup;
+mod shortcut;
 mod start;
 mod steam;
 mod stop;

@@ -30,9 +30,9 @@ Package names are the Arch ones. Other distributions name them differently.
 
 ## After installing
 
-Pick "Wallpaper Engine Bridge" as the wallpaper type on each screen (Desktop settings). Start the bridge with Play in Steam or `wpe-bridge-start`; it also runs at login. `./uninstall.sh` reverses it.
+Pick "Wallpaper Engine Bridge" as the wallpaper type on each screen (Desktop settings). Start the bridge with Play on the "Wallpaper Engine Bridge" shortcut in Steam or `wpe-bridge-start`; it also runs at login. `./uninstall.sh` reverses it.
 
-Setup sets Wallpaper Engine's launch option in Steam to `wpe-bridge-start %command%`, so Play starts the bridge instead of the stock launcher. Steam rewrites its config when it exits, so the option is only written while Steam is closed: if Steam is running, setup says so, and you close Steam and run `wpe-bridge-setup` again. Launch options you already have are left alone, and a backup of the changed file is kept next to it as `localconfig.vdf.wpe-bridge.bak`.
+Setup adds a non-Steam shortcut, "Wallpaper Engine Bridge", that runs `wpe-bridge-start`. Steam launches it once and sees it exit, so it does not show as running. The engine itself is started without Proton's `steam.exe` wrapper (the thing Steam spots as the game) and as a systemd user service, so Steam does not list Wallpaper Engine as running either. It is written to each account's `shortcuts.vdf`. Steam rewrites its config when it exits, so this only happens while Steam is closed: if Steam is running, setup says so, and you close Steam and run `wpe-bridge-setup` again. Other shortcuts are left alone, and a backup of the changed file is kept next to it as `shortcuts.vdf.wpe-bridge.bak`. `wpe-bridge-setup --remove` takes the shortcut out. Setup also removes the `wpe-bridge-start %command%` launch option that earlier versions set on the real app.
 
 ### Configuration
 
@@ -63,7 +63,7 @@ make dist                  # builds the release tarball into dist/
 - `wpe-bridge-stop` stops it.
 - `wpe-bridge-control` sends `pause`, `play`, `stop`, `mute` or `unmute` to the running engine.
 - `wpe-bridge-playback` applies the fullscreen and maximized settings (see below). Start runs it.
-- `wpe-bridge-setup` installs the DLL, enables the KWin script and sets the Steam launch option.
+- `wpe-bridge-setup` installs the DLL, enables the KWin script, and adds the Steam shortcut.
 
 `wpe-bridge paths` prints what it resolved: the Steam library, Proton tool and Linux runtime.
 

@@ -1,11 +1,11 @@
 //! Per-user setup after installing the package: `wpe-bridge-setup [--remove]`.
 //! Puts wtsapi32.dll into Wallpaper Engine's folder (a package cannot write into
 //! a Steam library), turns on the KWin script, restarts plasmashell so it
-//! picks up the wallpaper plugin, and points Steam's Play button at the bridge.
-//! --remove undoes all four.
+//! picks up the wallpaper plugin, and adds a non-Steam shortcut that starts the
+//! bridge. --remove undoes all of it.
 
 use crate::config::{self, Config};
-use crate::{launchopt, stop};
+use crate::{launchopt, shortcut, stop};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
@@ -73,7 +73,10 @@ pub fn run(arg: Option<&str>) -> i32 {
         return 1;
     }
     let _ = Command::new("systemctl").args(["--user", "restart", "plasma-plasmashell.service"]).status();
-    launchopt::apply(enable);
+    // Older installs set a launch option on the real app, which makes Steam show
+    // it as running; the shortcut replaces it.
+    launchopt::remove(if enable { "" } else { " --remove" });
+    shortcut::apply(enable);
 
     if enable {
         println!(

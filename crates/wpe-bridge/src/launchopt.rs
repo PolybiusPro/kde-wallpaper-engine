@@ -1,7 +1,7 @@
-//! Points Steam's Play button for Wallpaper Engine at `wpe-bridge-start`, by
-//! setting the app's LaunchOptions in each account's localconfig.vdf.
-//! `%command%` is where Steam would put its own Proton command line; start
-//! ignores its arguments, so the stock launcher never runs.
+//! Removes the `wpe-bridge-start %command%` LaunchOptions that earlier versions
+//! set on Wallpaper Engine's Steam entry (in each account's localconfig.vdf).
+//! They made Steam show the app as running; the non-Steam shortcut in
+//! shortcut.rs replaces them.
 //!
 //! Steam rewrites localconfig.vdf from memory when it exits, so the file is only
 //! touched while Steam is closed. The edit is textual: nothing but the one line
@@ -195,20 +195,6 @@ pub fn edit(text: &str, appid: u32, want: Option<&str>) -> Edit {
     }
 }
 
-/// `<bindir>/wpe-bridge-start %command%` for the directory this binary lives in.
-fn launch_value() -> Option<String> {
-    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
-    Some(launch_value_in(exe.parent()?))
-}
-
-/// `<bindir>/wpe-bridge-start %command%`, shell-quoted for Steam.
-fn launch_value_in(bindir: &Path) -> String {
-    let start = bindir.join(MARK).to_string_lossy().into_owned();
-    let plain = start.chars().all(|c| c.is_ascii_alphanumeric() || "_./-+@:,=~".contains(c));
-    let start = if plain { start } else { format!("'{}'", start.replace('\'', "'\\''")) };
-    format!("{start} %command%")
-}
-
 fn local_configs(userdata: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = fs::read_dir(userdata)
         .into_iter()
@@ -221,22 +207,14 @@ fn local_configs(userdata: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// Sets Wallpaper Engine's launch option in every Steam account's config
-/// (`enable`), or takes ours out again. Says so when Steam is running and the
-/// change has to wait for it to close.
-pub fn apply(enable: bool) {
-    let want = if enable {
-        match launch_value() {
-            Some(v) => Some(v),
-            None => return,
-        }
-    } else {
-        None
-    };
-    apply_in(&config::steam_dir().join("userdata"), enable, want.as_deref(), proc::find("steam").is_some());
+/// Takes our launch option out of every Steam account's config. Says so when
+/// Steam is running and the change has to wait for it to close; `rerun` is what
+/// to add to `wpe-bridge-setup` when asking the user to try again.
+pub fn remove(rerun: &str) {
+    apply_in(&config::steam_dir().join("userdata"), false, None, proc::find("steam").is_some(), rerun);
 }
 
-fn apply_in(userdata: &Path, enable: bool, want: Option<&str>, steam_running: bool) {
+fn apply_in(userdata: &Path, enable: bool, want: Option<&str>, steam_running: bool, rerun: &str) {
     let mut pending = Vec::new();
     for file in local_configs(userdata) {
         let Ok(text) = fs::read_to_string(&file) else { continue };
@@ -256,7 +234,7 @@ fn apply_in(userdata: &Path, enable: bool, want: Option<&str>, steam_running: bo
         eprintln!(
             "Steam is running and would overwrite the change when it exits, so Wallpaper Engine's launch option was not {}.\nClose Steam and run wpe-bridge-setup{} again.",
             if enable { "set" } else { "removed" },
-            if enable { "" } else { " --remove" }
+            rerun
         );
         return;
     }
@@ -379,7 +357,7 @@ mod tests {
     fn apply_writes_the_option_and_keeps_a_backup() {
         let s = crate::testutil::Scratch::new();
         let file = userdata_with(&s, "1001", &vdf(APP));
-        apply_in(s.path(), true, Some(START), false);
+        apply_in(s.path(), true, Some(START), false, "");
         assert!(fs::read_to_string(&file).unwrap().contains(START));
         assert_eq!(fs::read_to_string(bak(&file)).unwrap(), vdf(APP));
     }
@@ -389,7 +367,7 @@ mod tests {
         let s = crate::testutil::Scratch::new();
         let file = userdata_with(&s, "1001", &vdf(APP));
         fs::write(bak(&file), "the user's own backup").unwrap();
-        apply_in(s.path(), true, Some(START), false);
+        apply_in(s.path(), true, Some(START), false, "");
         assert_eq!(fs::read_to_string(bak(&file)).unwrap(), "the user's own backup");
     }
 
@@ -397,7 +375,7 @@ mod tests {
     fn apply_writes_nothing_while_steam_runs() {
         let s = crate::testutil::Scratch::new();
         let file = userdata_with(&s, "1001", &vdf(APP));
-        apply_in(s.path(), true, Some(START), true);
+        apply_in(s.path(), true, Some(START), true, "");
         assert_eq!(fs::read_to_string(&file).unwrap(), vdf(APP));
         assert!(!bak(&file).exists());
     }
@@ -407,7 +385,7 @@ mod tests {
         let s = crate::testutil::Scratch::new();
         let theirs = vdf(&APP.replace("\t\t\t\t\t}\n", "\t\t\t\t\t\t\"LaunchOptions\"\t\t\"mangohud %command%\"\n\t\t\t\t\t}\n"));
         let file = userdata_with(&s, "1001", &theirs);
-        apply_in(s.path(), true, Some(START), false);
+        apply_in(s.path(), true, Some(START), false, "");
         assert_eq!(fs::read_to_string(&file).unwrap(), theirs);
         assert!(!bak(&file).exists());
     }
@@ -419,7 +397,7 @@ mod tests {
         let b = userdata_with(&s, "1002", &vdf(""));
         let junk = userdata_with(&s, "1003", "not vdf");
         s.write("1004/other.txt", "no localconfig here");
-        apply_in(s.path(), true, Some(START), false);
+        apply_in(s.path(), true, Some(START), false, "");
         assert!(fs::read_to_string(a).unwrap().contains(START));
         assert!(fs::read_to_string(b).unwrap().contains(START));
         assert_eq!(fs::read_to_string(junk).unwrap(), "not vdf");
@@ -429,27 +407,15 @@ mod tests {
     fn apply_removal_restores_the_file() {
         let s = crate::testutil::Scratch::new();
         let file = userdata_with(&s, "1001", &vdf(APP));
-        apply_in(s.path(), true, Some(START), false);
-        apply_in(s.path(), false, None, false);
+        apply_in(s.path(), true, Some(START), false, "");
+        apply_in(s.path(), false, None, false, "");
         assert_eq!(fs::read_to_string(&file).unwrap(), vdf(APP));
     }
 
     #[test]
     fn apply_without_a_userdata_folder_is_a_no_op() {
         let s = crate::testutil::Scratch::new();
-        apply_in(&s.path().join("missing"), true, Some(START), false);
-    }
-
-    #[test]
-    fn the_launch_value_quotes_only_when_needed() {
-        assert_eq!(launch_value_in(Path::new("/home/u/.local/bin")), "/home/u/.local/bin/wpe-bridge-start %command%");
-        assert_eq!(launch_value_in(Path::new("/home/u/my bin")), "'/home/u/my bin/wpe-bridge-start' %command%");
-        assert_eq!(launch_value_in(Path::new("/it's")), "'/it'\\''s/wpe-bridge-start' %command%");
-    }
-
-    #[test]
-    fn the_real_launch_value_names_the_start_command() {
-        assert!(launch_value().unwrap().ends_with("/wpe-bridge-start %command%"));
+        apply_in(&s.path().join("missing"), true, Some(START), false, "");
     }
 
     #[test]
