@@ -1,7 +1,7 @@
 # Repackages the prebuilt release tarball, so no Rust or mingw is needed.
 # Build with: rpmbuild -bb wpe-bridge.spec (tarball in SOURCES, or use spectool -g)
 Name:           wpe-bridge
-Version:        0.1.2
+Version:        0.1.3
 Release:        1
 Summary:        Run Wallpaper Engine under Proton as the KDE Plasma wallpaper
 License:        GPL-3.0-or-later
