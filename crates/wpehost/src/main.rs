@@ -17,12 +17,12 @@ use std::io::Read;
 use std::process::ExitCode;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, LRESULT, RECT, WAIT_OBJECT_0, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{CreateRectRgn, GetStockObject, SetWindowRgn, BLACK_BRUSH, HBRUSH};
 use windows_sys::Win32::System::Environment::GetCommandLineW;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::{
-    CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+    CreateProcessW, WaitForSingleObject, PROCESS_INFORMATION, STARTUPINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnumChildWindows,
@@ -332,6 +332,7 @@ unsafe fn run() -> ExitCode {
     raise(icons);
 
     let mut config = Vec::new();
+    let mut engine: HANDLE = null_mut();
     let cmdline = GetCommandLineW();
     let len = (0..).take_while(|&i| *cmdline.add(i) != 0).count();
     let tail = command_tail(std::slice::from_raw_parts(cmdline, len));
@@ -345,8 +346,8 @@ unsafe fn run() -> ExitCode {
             eprintln!("CreateProcess failed");
             return ExitCode::FAILURE;
         }
-        windows_sys::Win32::Foundation::CloseHandle(pi.hThread);
-        windows_sys::Win32::Foundation::CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        engine = pi.hProcess;
     }
 
     SetTimer(progman, 1, 200, None);
@@ -357,6 +358,11 @@ unsafe fn run() -> ExitCode {
     let mut msg: MSG = std::mem::zeroed();
     while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
         if msg.message == WM_TIMER && msg.wParam == 1 {
+            // The engine quitting ends the session. Staying up would keep the
+            // wine session alive and make the next start hang behind it.
+            if !engine.is_null() && WaitForSingleObject(engine, 0) == WAIT_OBJECT_0 {
+                break;
+            }
             // Something (the compositor's focus sync) raises the host; put the
             // icon layer back on top so the engine can find the host below it.
             let mut h = GetTopWindow(null_mut());
